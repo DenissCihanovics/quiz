@@ -1,16 +1,46 @@
 import React, { useState } from 'react';
 import { createTest } from '../../services/testService';
 
+const createQuestion = (id, type = 'multiple-choice') => ({
+  id,
+  text: '',
+  type,
+  options: type === 'multiple-choice' ? ['', ''] : [],
+  mediaType: 'none',
+  mediaUrl: '',
+  correctAnswer: '',
+  autoCheckMode: 'exact',
+  autoCheckKeywords: []
+});
+
 const TestCreator = ({ onTestCreated }) => {
   const [testTitle, setTestTitle] = useState('');
   const [questions, setQuestions] = useState([
-    { id: '1', text: '', type: 'multiple-choice', options: ['', ''], correctAnswer: '' },
-    { id: '2', text: '', type: 'text-input', correctAnswer: '' }
+    createQuestion('1', 'multiple-choice'),
+    createQuestion('2', 'text-input')
   ]);
+  const [mode, setMode] = useState('async');
+  const [durationMinutes, setDurationMinutes] = useState(30);
 
   const handleQuestionChange = (index, field, value) => {
-    const updatedQuestions = [...questions];
-    updatedQuestions[index][field] = value;
+    const updatedQuestions = [...questions].map((question, questionIndex) => {
+      if (questionIndex !== index) return question;
+
+      const updatedQuestion = { ...question, [field]: value };
+
+      if (field === 'type') {
+        if (value === 'multiple-choice') {
+          updatedQuestion.options = question.options?.length ? question.options : ['', ''];
+          updatedQuestion.autoCheckMode = 'exact';
+          updatedQuestion.autoCheckKeywords = [];
+        } else {
+          updatedQuestion.options = [];
+        }
+      }
+
+      return updatedQuestion;
+    });
+
     setQuestions(updatedQuestions);
   };
 
@@ -26,16 +56,19 @@ const TestCreator = ({ onTestCreated }) => {
     setQuestions(updatedQuestions);
   };
 
+  const handleKeywordsChange = (questionIndex, value) => {
+    const updatedQuestions = [...questions];
+    updatedQuestions[questionIndex].autoCheckKeywords = value
+      .split(',')
+      .map((keyword) => keyword.trim())
+      .filter(Boolean);
+    setQuestions(updatedQuestions);
+  };
+
   const addQuestion = () => {
     setQuestions([
       ...questions,
-      {
-        id: (questions.length + 1).toString(),
-        text: '',
-        type: 'multiple-choice',
-        options: ['', ''],
-        correctAnswer: ''
-      }
+      createQuestion((questions.length + 1).toString(), 'multiple-choice')
     ]);
   };
 
@@ -44,6 +77,11 @@ const TestCreator = ({ onTestCreated }) => {
 
     if (!testTitle.trim()) {
       alert('Lūdzu, ievadiet testa nosaukumu');
+      return;
+    }
+
+    if (mode === 'sync' && (!Number.isFinite(Number(durationMinutes)) || Number(durationMinutes) <= 0)) {
+      alert('Lūdzu, norādiet taimera ilgumu minūtēs (vairāk par 0).');
       return;
     }
 
@@ -66,7 +104,13 @@ const TestCreator = ({ onTestCreated }) => {
     try {
       const testId = await createTest({
         title: testTitle,
-        questions,
+        mode,
+        hasTimer: mode === 'sync',
+        durationMinutes: mode === 'sync' ? Number(durationMinutes) : null,
+        questions: questions.map((question) => ({
+          ...question,
+          autoCheckKeywords: question.type === 'text-input' ? question.autoCheckKeywords : []
+        })),
         createdAt: new Date()
       });
 
@@ -93,6 +137,27 @@ const TestCreator = ({ onTestCreated }) => {
             required
           />
         </div>
+
+        <div className="form-group">
+          <label>Režīms:</label>
+          <select value={mode} onChange={(e) => setMode(e.target.value)}>
+            <option value="async">Asinhrons (bez taimera)</option>
+            <option value="sync">Sinhrons (ar taimeri)</option>
+          </select>
+        </div>
+
+        {mode === 'sync' && (
+          <div className="form-group">
+            <label>Taimera ilgums (minūtēs):</label>
+            <input
+              type="number"
+              min="1"
+              value={durationMinutes}
+              onChange={(e) => setDurationMinutes(e.target.value)}
+              required
+            />
+          </div>
+        )}
 
         <h3>Jautājumi</h3>
         {questions.map((question, questionIndex) => (
@@ -142,7 +207,32 @@ const TestCreator = ({ onTestCreated }) => {
             )}
 
             <div className="form-group">
-              <label>Pareizā atbilde (nav obligāti):</label>
+              <label>Pievienot mediju (nav obligāti):</label>
+              <select
+                value={question.mediaType}
+                onChange={(e) => handleQuestionChange(questionIndex, 'mediaType', e.target.value)}
+              >
+                <option value="none">Bez medija</option>
+                <option value="image">Attēls (image URL)</option>
+                <option value="video">Video (video URL)</option>
+                <option value="audio">Audio (audio URL)</option>
+              </select>
+            </div>
+
+            {question.mediaType !== 'none' && (
+              <div className="form-group">
+                <label>Medija URL:</label>
+                <input
+                  type="url"
+                  value={question.mediaUrl}
+                  onChange={(e) => handleQuestionChange(questionIndex, 'mediaUrl', e.target.value)}
+                  placeholder="https://..."
+                />
+              </div>
+            )}
+
+            <div className="form-group">
+              <label>Auto-pārbaude (nav obligāti):</label>
               {question.type === 'multiple-choice' ? (
                 <select
                   value={question.correctAnswer}
@@ -162,6 +252,34 @@ const TestCreator = ({ onTestCreated }) => {
                 />
               )}
             </div>
+
+            {question.type === 'text-input' && (
+              <>
+                <div className="form-group">
+                  <label>Auto-pārbaudes režīms:</label>
+                  <select
+                    value={question.autoCheckMode}
+                    onChange={(e) => handleQuestionChange(questionIndex, 'autoCheckMode', e.target.value)}
+                  >
+                    <option value="exact">Exact match</option>
+                    <option value="contains">Answer contains expected text</option>
+                    <option value="keywords">Keywords (all must be present)</option>
+                  </select>
+                </div>
+
+                {question.autoCheckMode === 'keywords' && (
+                  <div className="form-group">
+                    <label>Atslēgvārdi (atdali ar komatiem):</label>
+                    <input
+                      type="text"
+                      value={question.autoCheckKeywords.join(', ')}
+                      onChange={(e) => handleKeywordsChange(questionIndex, e.target.value)}
+                      placeholder="piem.: DNS, kodols, šūna"
+                    />
+                  </div>
+                )}
+              </>
+            )}
           </div>
         ))}
 

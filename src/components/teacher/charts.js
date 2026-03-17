@@ -3,6 +3,9 @@ import React, { useRef, useEffect } from 'react';
 const Chart = ({ type, data, options = {} }) => {
   const canvasRef = useRef(null);
 
+  // Canvas rendering helpers are defined in-component and intentionally not
+  // included in dependencies to avoid unnecessary redraw loops.
+  /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
     if (!canvasRef.current || !data) return;
 
@@ -23,7 +26,8 @@ const Chart = ({ type, data, options = {} }) => {
     } else if (type === 'line') {
       drawLineChart(ctx, data, canvasWidth, canvasHeight, options);
     }
-  }, [type, data, options]);  
+  }, [type, data, options]);
+  /* eslint-enable react-hooks/exhaustive-deps */
 
   // Функция для отрисовки столбчатой диаграммы
   const drawBarChart = (ctx, data, canvasWidth, canvasHeight, options) => {
@@ -188,7 +192,7 @@ const Chart = ({ type, data, options = {} }) => {
     
     // Рисуем линии для каждого набора данных
     datasets.forEach(dataset => {
-      const { data, color = getRandomColor(), label } = dataset;
+      const { data, color = getRandomColor() } = dataset;
       
       // Рисуем линию
       ctx.beginPath();

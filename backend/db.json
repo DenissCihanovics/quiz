@@ -1,0 +1,116 @@
+{
+  "tests": [
+    {
+      "id": "1773663167437_h3q9xn",
+      "title": "Папа",
+      "mode": "sync",
+      "hasTimer": true,
+      "durationMinutes": 60,
+      "questions": [
+        {
+          "id": "1",
+          "text": "Папа",
+          "type": "multiple-choice",
+          "options": [
+            "Папа1",
+            "Папа2",
+            "Папа3"
+          ],
+          "mediaType": "video",
+          "mediaUrl": "https://www.youtube.com/watch?v=GpHM_MOcbQU",
+          "correctAnswer": "Папа2",
+          "autoCheckMode": "exact",
+          "autoCheckKeywords": []
+        },
+        {
+          "id": "2",
+          "text": "мама?",
+          "type": "text-input",
+          "options": [],
+          "mediaType": "none",
+          "mediaUrl": "",
+          "correctAnswer": "Мама",
+          "autoCheckMode": "exact",
+          "autoCheckKeywords": []
+        }
+      ],
+      "createdAt": "2026-03-16T12:12:47.437Z"
+    },
+    {
+      "id": "1773753786807_6e1gkz",
+      "title": "Test",
+      "mode": "async",
+      "hasTimer": false,
+      "durationMinutes": null,
+      "questions": [
+        {
+          "id": "1",
+          "text": "Kas tas ir?",
+          "type": "multiple-choice",
+          "options": [
+            "Kaķis",
+            "Suns",
+            "Zivs"
+          ],
+          "mediaType": "image",
+          "mediaUrl": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRBBJ2qlPg1AueAU5M1YIXAZPb0K7WaqEKbn9k1ZpW3gsgJJMi7zEDYuSm496vjx9eopetvG4Aemy5SvQS_Wlq4YA0V7yr8A9yNxa_JyN53GV_QumIqobZaRsP8UmUqjk2mx7M&s=10&ec=121584914",
+          "correctAnswer": "Kaķis",
+          "autoCheckMode": "exact",
+          "autoCheckKeywords": []
+        },
+        {
+          "id": "2",
+          "text": "Kurš mājdzīvnieks parasti rej?\n",
+          "type": "text-input",
+          "options": [],
+          "mediaType": "none",
+          "mediaUrl": "",
+          "correctAnswer": "Suns",
+          "autoCheckMode": "exact",
+          "autoCheckKeywords": []
+        }
+      ],
+      "createdAt": "2026-03-17T13:23:06.808Z"
+    }
+  ],
+  "rooms": [
+    {
+      "id": "1773663170364_v66xin",
+      "code": "53531",
+      "active": true,
+      "created": "2026-03-16T12:12:50.364Z",
+      "testId": "1773663167437_h3q9xn"
+    },
+    {
+      "id": "1773753801535_9mut4r",
+      "code": "34892",
+      "active": true,
+      "created": "2026-03-17T13:23:21.535Z",
+      "testId": "1773753786807_6e1gkz"
+    }
+  ],
+  "submissions": [
+    {
+      "id": "1773663266601_yvh1mh",
+      "roomId": "1773663170364_v66xin",
+      "testId": "1773663167437_h3q9xn",
+      "studentName": "сСС",
+      "answers": {
+        "1": "Папа2",
+        "2": "Мама"
+      },
+      "timestamp": "2026-03-16T12:14:26.601Z"
+    },
+    {
+      "id": "1773754054217_gyc8ui",
+      "roomId": "1773753801535_9mut4r",
+      "testId": "1773753786807_6e1gkz",
+      "studentName": "Deniss",
+      "answers": {
+        "1": "Suns",
+        "2": "Suns"
+      },
+      "timestamp": "2026-03-17T13:27:34.217Z"
+    }
+  ]
+}

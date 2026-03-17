@@ -2,6 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import { getSubmissionsByRoom } from '../../services/submissionService';
 import { getTestById } from '../../services/testService';
+import * as XLSX from 'xlsx';
+import { evaluateSubmission } from '../../utils/evaluation';
 
 const Results = ({ roomId, roomCode }) => {
   const [submissions, setSubmissions] = useState([]);
@@ -13,10 +15,10 @@ const Results = ({ roomId, roomCode }) => {
       if (!roomId) return;
 
       try {
-        const submissionsData = getSubmissionsByRoom(roomId);
+        const submissionsData = await getSubmissionsByRoom(roomId);
 
         if (submissionsData.length > 0) {
-          const testData = getTestById(submissionsData[0].testId);
+          const testData = await getTestById(submissionsData[0].testId);
           setTest(testData);
         }
 
@@ -33,63 +35,56 @@ const Results = ({ roomId, roomCode }) => {
     return () => clearInterval(intervalId);
   }, [roomId]);
 
-  const exportToCSV = () => {
+  const getRankedSubmissions = () => {
+    if (!test) return [];
+
+    return submissions
+      .map((submission) => ({
+        ...submission,
+        evaluation: evaluateSubmission(test, submission.answers)
+      }))
+      .sort((a, b) => {
+        if (b.evaluation.percentage !== a.evaluation.percentage) {
+          return b.evaluation.percentage - a.evaluation.percentage;
+        }
+        return new Date(a.timestamp) - new Date(b.timestamp);
+      })
+      .map((submission, index) => ({
+        ...submission,
+        rank: index + 1
+      }));
+  };
+
+  const exportToExcel = () => {
     if (!test || submissions.length === 0) {
       alert('Nav datu eksportam.');
       return;
     }
 
     try {
-      const csvRows = [];
+      const rankedSubmissions = getRankedSubmissions();
+      const rows = rankedSubmissions.map((submission) => {
+        const row = {
+          Rank: submission.rank,
+          Student: submission.studentName,
+          Score: `${submission.evaluation.score}/${submission.evaluation.maxScore}`,
+          Percentage: `${submission.evaluation.percentage.toFixed(1)}%`,
+          SubmittedAt: new Date(submission.timestamp).toLocaleString()
+        };
 
-      csvRows.push(`Testa rezultāti: ${test.title}`);
-      csvRows.push(`Istabas kods: ${roomCode}`);
-      csvRows.push(`Eksporta datums: ${new Date().toLocaleString()}`);
-      csvRows.push('');
-
-      const headers = ['Skolēns'];
-      test.questions.forEach((_, index) => {
-        headers.push(`Jautājums ${index + 1}`);
-      });
-      headers.push('Atbildes laiks');
-      csvRows.push(headers.join(';'));
-
-      const questionTexts = [''];
-      test.questions.forEach(question => {
-        questionTexts.push(question.text.substring(0, 30) + (question.text.length > 30 ? '...' : ''));
-      });
-      questionTexts.push('');
-      csvRows.push(questionTexts.join(';'));
-
-      submissions.forEach(submission => {
-        const row = [submission.studentName];
-
-        test.questions.forEach(question => {
-          const answer = submission.answers[question.id] || '-';
-          const formattedAnswer = answer.includes(';') ? `"${answer.replace(/"/g, '""')}"` : answer;
-          row.push(formattedAnswer);
+        test.questions.forEach((question, index) => {
+          row[`Q${index + 1}`] = submission.answers[question.id] || '-';
         });
 
-        const date = new Date(submission.timestamp);
-        row.push(date.toLocaleString());
-
-        csvRows.push(row.join(';'));
+        return row;
       });
 
-      const csvContent = '\uFEFF' + csvRows.join('\n');
-
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.setAttribute('href', url);
-      link.setAttribute('download', `testa_rezultāti_${roomCode}.csv`);
-      link.style.visibility = 'hidden';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-
+      const worksheet = XLSX.utils.json_to_sheet(rows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Results');
+      XLSX.writeFile(workbook, `testa_rezultati_${roomCode}.xlsx`);
     } catch (error) {
-      console.error('Kļūda eksportējot CSV:', error);
+      console.error('Kļūda eksportējot Excel:', error);
       alert('Kļūda eksportējot rezultātus. Lūdzu, mēģiniet vēlreiz.');
     }
   };
@@ -98,6 +93,8 @@ const Results = ({ roomId, roomCode }) => {
     const date = new Date(dateString);
     return date.toLocaleString();
   };
+
+  const rankedSubmissions = getRankedSubmissions();
 
   if (loading) {
     return <div>Rezultāti tiek ielādēti...</div>;
@@ -118,7 +115,9 @@ const Results = ({ roomId, roomCode }) => {
           <table className="results-table">
             <thead>
               <tr>
+                <th>Rangs</th>
                 <th>Skolēns</th>
+                <th>Punkti</th>
                 {test?.questions.map((q, idx) => (
                   <th key={q.id}>J{idx + 1}</th>
                 ))}
@@ -126,19 +125,26 @@ const Results = ({ roomId, roomCode }) => {
               </tr>
             </thead>
             <tbody>
-              {submissions.map((sub) => (
+              {rankedSubmissions.map((sub) => (
                 <tr key={sub.id}>
+                  <td>#{sub.rank}</td>
                   <td>{sub.studentName}</td>
+                  <td>
+                    {sub.evaluation.score}/{sub.evaluation.maxScore}
+                    {sub.evaluation.maxScore > 0 && (
+                      <span> ({sub.evaluation.percentage.toFixed(1)}%)</span>
+                    )}
+                  </td>
                   {test?.questions.map((q) => (
                     <td key={q.id}>
                       {sub.answers[q.id]}
-                      {q.correctAnswer && (
+                      {sub.evaluation.questionResults.find((item) => item.questionId === q.id)?.isCorrect !== null && (
                         <span className={
-                          sub.answers[q.id] === q.correctAnswer
+                          sub.evaluation.questionResults.find((item) => item.questionId === q.id)?.isCorrect
                             ? 'correct'
                             : 'incorrect'
                         }>
-                          {sub.answers[q.id] === q.correctAnswer ? ' ✓' : ' ✗'}
+                          {sub.evaluation.questionResults.find((item) => item.questionId === q.id)?.isCorrect ? ' ✓' : ' ✗'}
                         </span>
                       )}
                     </td>
@@ -149,8 +155,8 @@ const Results = ({ roomId, roomCode }) => {
             </tbody>
           </table>
 
-          <button onClick={exportToCSV} className="export-btn">
-            Eksportēt rezultātus CSV formātā
+          <button onClick={exportToExcel} className="export-btn">
+            Eksportēt rezultātus Excel (.xlsx)
           </button>
         </>
       )}

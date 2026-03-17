@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { getTestById } from '../../services/testService';
 import { submitAnswers } from '../../services/submissionService';
+import { getQuestionCheckConfig, isAnswerCorrect } from '../../utils/evaluation';
 
 const TakeTest = ({ roomId, testId, studentName, onTestComplete }) => {
   const [test, setTest] = useState(null);
@@ -8,14 +9,15 @@ const TakeTest = ({ roomId, testId, studentName, onTestComplete }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [currentQuestion, setCurrentQuestion] = useState(0);
-  const [lastAnsweredQuestion, setLastAnsweredQuestion] = useState(null); // Pēdējā atbildētā jautājuma ID
-  const [showFeedback, setShowFeedback] = useState(false); // Karogs atsauksmes rādīšanai
+  const [remainingSeconds, setRemainingSeconds] = useState(null);
+  const isSubmittingRef = useRef(false);
+  const answersRef = useRef({});
+  const testRef = useRef(null);
 
   useEffect(() => {
-    // Ielādēt testu, kad komponents tiek piesaistīts
-    const fetchTest = () => {
+    const fetchTest = async () => {
       try {
-        const testData = getTestById(testId);
+        const testData = await getTestById(testId);
         
         if (!testData) {
           setError('Tests netika atrasts');
@@ -30,6 +32,10 @@ const TakeTest = ({ roomId, testId, studentName, onTestComplete }) => {
           initialAnswers[q.id] = '';
         });
         setAnswers(initialAnswers);
+
+        const hasTimer = Boolean(testData.hasTimer || testData.mode === 'sync');
+        const minutes = Number(testData.durationMinutes) || 30;
+        setRemainingSeconds(hasTimer ? minutes * 60 : null);
       } catch (error) {
         console.error('Kļūda ielādējot testu:', error);
         setError('Kļūda ielādējot testu. Lūdzu, mēģiniet vēlreiz.');
@@ -41,39 +47,48 @@ const TakeTest = ({ roomId, testId, studentName, onTestComplete }) => {
     fetchTest();
   }, [testId]);
 
-  // Kad mainās pašreizējais jautājums, pārbaudām, vai ir jāparāda atsauksmes
   useEffect(() => {
-    if (lastAnsweredQuestion && lastAnsweredQuestion !== test?.questions[currentQuestion]?.id) {
-      setShowFeedback(true);
-    } else {
-      setShowFeedback(false);
-    }
-  }, [currentQuestion, lastAnsweredQuestion, test]);
+    answersRef.current = answers;
+  }, [answers]);
 
-  // Apstrādāt studenta atbildes izmaiņas
+  useEffect(() => {
+    testRef.current = test;
+  }, [test]);
+
+  useEffect(() => {
+    if (remainingSeconds === null) return undefined;
+    if (remainingSeconds <= 0) return undefined;
+
+    const intervalId = setInterval(() => {
+      setRemainingSeconds((prev) => {
+        if (prev === null) return prev;
+        if (prev <= 1) {
+          clearInterval(intervalId);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(intervalId);
+  }, [remainingSeconds]);
+
+  useEffect(() => {
+    if (remainingSeconds !== 0) return;
+    performSubmit(answersRef.current, { skipConfirm: true, timedOut: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remainingSeconds]);
+
   const handleAnswerChange = (questionId, value) => {
     setAnswers(prev => ({
       ...prev,
       [questionId]: value
     }));
-    
-    // Saglabāt pēdējo atbildēto jautājumu
-    setLastAnsweredQuestion(questionId);
-    
-    // Paslēpt atsauksmes atbildes izmaiņu laikā
-    setShowFeedback(false);
   };
 
-  // Navigācija starp jautājumiem
   const goToNextQuestion = () => {
     if (currentQuestion < test.questions.length - 1) {
-      // Parādīt atsauksmes pirms pāriešanas uz nākamo jautājumu
-      setShowFeedback(true);
-      
-      // Pāriet uz nākamo jautājumu pēc 1,5 sekundēm
-      setTimeout(() => {
-        setCurrentQuestion(currentQuestion + 1);
-      }, 1500); // Aizture 1,5 sekundes, lai apskatītu atsauksmes
+      setCurrentQuestion(currentQuestion + 1);
     }
   };
 
@@ -83,36 +98,73 @@ const TakeTest = ({ roomId, testId, studentName, onTestComplete }) => {
     }
   };
 
-  // Atbilžu iesniegšana
-  const handleSubmit = () => {
+  const performSubmit = async (submissionAnswers, options = {}) => {
+    if (isSubmittingRef.current) return;
+
+    const activeTest = testRef.current || test;
+    if (!activeTest) return;
+
     try {
-      // Parādīt atsauksmes pirms iesniegšanas
-      setShowFeedback(true);
-      
-      // Atbilžu validācija
-      const unansweredQuestions = test.questions.filter(q => !answers[q.id]);
-      
-      if (unansweredQuestions.length > 0) {
+      const unansweredQuestions = activeTest.questions.filter((q) => !submissionAnswers[q.id]);
+
+      if (!options.skipConfirm && unansweredQuestions.length > 0) {
         const confirm = window.confirm(`Jums ir ${unansweredQuestions.length} neizpildīts jautājums(-i). Vai tomēr iesniegt?`);
         if (!confirm) return;
       }
-      
-      // Iesniegt atbildes ar aizturi, lai lietotājs varētu apskatīt pareizo atbildi
-      setTimeout(() => {
-        submitAnswers(roomId, testId, studentName, answers);
+
+      isSubmittingRef.current = true;
+      await submitAnswers(roomId, testId, studentName, submissionAnswers);
+      if (options.timedOut) {
+        alert('Laiks ir beidzies. Tests automātiski iesniegts.');
+      } else {
         alert('Tests veiksmīgi iesniegts!');
-        onTestComplete();
-      }, 2000); // Aizture 2 sekundes, lai apskatītu atsauksmes
+      }
+      onTestComplete();
     } catch (error) {
+      isSubmittingRef.current = false;
       console.error('Kļūda iesniedzot testu:', error);
       setError('Kļūda iesniedzot testu. Lūdzu, mēģiniet vēlreiz.');
     }
   };
 
-  // Pārbauda, vai atbilde ir pareiza
-  const isCorrectAnswer = (questionId, answer) => {
-    const question = test.questions.find(q => q.id === questionId);
-    return question && question.correctAnswer === answer;
+  const handleSubmit = async () => {
+    await performSubmit(answers, { skipConfirm: false, timedOut: false });
+  };
+
+  const formatTime = (totalSeconds) => {
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  };
+
+  const renderMedia = (question) => {
+    if (!question.mediaUrl || question.mediaType === 'none') return null;
+
+    if (question.mediaType === 'image') {
+      return (
+        <div className="question-media">
+          <img src={question.mediaUrl} alt="Question media" />
+        </div>
+      );
+    }
+
+    if (question.mediaType === 'video') {
+      return (
+        <div className="question-media">
+          <video controls src={question.mediaUrl}>
+            Jūsu pārlūks neatbalsta video atskaņošanu.
+          </video>
+        </div>
+      );
+    }
+
+    return (
+      <div className="question-media">
+        <audio controls src={question.mediaUrl}>
+          Jūsu pārlūks neatbalsta audio atskaņošanu.
+        </audio>
+      </div>
+    );
   };
 
   if (loading) {
@@ -129,6 +181,9 @@ const TakeTest = ({ roomId, testId, studentName, onTestComplete }) => {
 
   const currentQ = test.questions[currentQuestion];
   const hasAnswer = !!answers[currentQ.id];
+  const checkConfig = getQuestionCheckConfig(currentQ);
+  const currentResult = isAnswerCorrect(currentQ, answers[currentQ.id]);
+  const hasTimer = remainingSeconds !== null;
 
   return (
     <div className="take-test">
@@ -136,11 +191,14 @@ const TakeTest = ({ roomId, testId, studentName, onTestComplete }) => {
       <div className="student-info">
         <p><strong>Student:</strong> {studentName}</p>
         <p><strong>Jautājums:</strong> {currentQuestion + 1} no {test.questions.length}</p>
+        <p><strong>Režīms:</strong> {hasTimer ? 'Sinhrons (ar taimeri)' : 'Asinhrons (bez taimera)'}</p>
+        {hasTimer && <p><strong>Atlikušais laiks:</strong> {formatTime(remainingSeconds)}</p>}
       </div>
       
       <div className="question-container">
         <h3>Jautājums {currentQuestion + 1}</h3>
         <p className="question-text">{currentQ.text}</p>
+        {renderMedia(currentQ)}
         
         {currentQ.type === 'multiple-choice' ? (
           <div className="options">
@@ -155,22 +213,8 @@ const TakeTest = ({ roomId, testId, studentName, onTestComplete }) => {
                 />
                 <span className="option-checkmark"></span>
                 <span className="option-text">{option}</span>
-                
-                {/* Rāda atsauksmes tikai pēc jautājuma aiziešanas */}
-                {showFeedback && answers[currentQ.id] === option && currentQ.correctAnswer && (
-                  isCorrectAnswer(currentQ.id, option) ? 
-                    <span className="feedback correct">✓</span> : 
-                    <span className="feedback incorrect">✗</span>
-                )}
               </label>
             ))}
-            
-            {/* Rāda pareizo atbildi tikai pēc jautājuma aiziešanas, ja atbilde bija nepareiza */}
-            {showFeedback && hasAnswer && currentQ.correctAnswer && !isCorrectAnswer(currentQ.id, answers[currentQ.id]) && (
-              <div className="correct-answer-feedback">
-                <p>Pareizā atbilde: <strong>{currentQ.correctAnswer}</strong></p>
-              </div>
-            )}
           </div>
         ) : (
           <div className="text-input">
@@ -180,17 +224,18 @@ const TakeTest = ({ roomId, testId, studentName, onTestComplete }) => {
               placeholder="Ievadiet savu atbildi šeit..."
               rows="4"
             />
-            
-            {/* Rāda pareizo atbildi tikai pēc jautājuma aiziešanas */}
-            {showFeedback && hasAnswer && currentQ.correctAnswer && (
-              <div className="text-feedback">
-                {answers[currentQ.id].toLowerCase().trim() === currentQ.correctAnswer.toLowerCase().trim() ? (
-                  <div className="correct">Pareizi! ✓</div>
-                ) : (
-                  <div className="incorrect">
-                    <p>Nepareizi ✗</p>
-                    <p>Pareizā atbilde: <strong>{currentQ.correctAnswer}</strong></p>
-                  </div>
+          </div>
+        )}
+
+        {hasAnswer && checkConfig.hasAutoCheck && currentResult !== null && (
+          <div className="text-feedback">
+            {currentResult ? (
+              <div className="correct">Auto-check: pareizi ✓</div>
+            ) : (
+              <div className="incorrect">
+                <p>Auto-check: pagaidām nepareizi ✗</p>
+                {checkConfig.correctAnswer && (
+                  <p>Paredzētā atbilde: <strong>{checkConfig.correctAnswer}</strong></p>
                 )}
               </div>
             )}
@@ -211,7 +256,6 @@ const TakeTest = ({ roomId, testId, studentName, onTestComplete }) => {
           <button 
             onClick={goToNextQuestion} 
             className="nav-btn next-btn"
-            disabled={!hasAnswer} // Poga ir neaktīva, ja nav atbildes
           >
             Nākamais
           </button>
@@ -219,7 +263,6 @@ const TakeTest = ({ roomId, testId, studentName, onTestComplete }) => {
           <button 
             onClick={handleSubmit} 
             className="submit-btn"
-            disabled={!hasAnswer} // Poga ir neaktīva, ja nav atbildes
           >
             Pabeigt testu
           </button>

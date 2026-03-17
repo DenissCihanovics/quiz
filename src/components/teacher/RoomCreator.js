@@ -5,7 +5,7 @@ const RoomCreator = ({ testId, onRoomCreated }) => {
   const [roomData, setRoomData] = useState(null);
   const [isStarted, setIsStarted] = useState(false);
 
-  const handleCreateRoom = () => {
+  const handleCreateRoom = async () => {
     try {
       console.log('Izveidojam istabu testam ar ID:', testId);
 
@@ -14,7 +14,7 @@ const RoomCreator = ({ testId, onRoomCreated }) => {
         return;
       }
 
-      const { id, code } = createRoom(testId);
+      const { id, code } = await createRoom(testId);
       console.log('Istaba izveidota ar ID:', id, 'un kodu:', code);
 
       setRoomData({ id, code });
@@ -25,9 +25,9 @@ const RoomCreator = ({ testId, onRoomCreated }) => {
     }
   };
 
-  const handleStartTest = () => {
+  const handleStartTest = async () => {
     try {
-      activateRoom(roomData.id);
+      await activateRoom(roomData.id);
       setIsStarted(true);
       alert('Tests ir sākts! Skolēni tagad var pievienoties.');
       onRoomCreated(roomData.id, roomData.code);
@@ -39,9 +39,6 @@ const RoomCreator = ({ testId, onRoomCreated }) => {
 
   React.useEffect(() => {
     console.log('RoomCreator ielādēts ar testId:', testId);
-
-    const rooms = localStorage.getItem('quiz_rooms');
-    console.log('Pašreizējās istabas localStorage:', rooms ? JSON.parse(rooms) : 'nav atrastas');
   }, [testId]);
 
   return (

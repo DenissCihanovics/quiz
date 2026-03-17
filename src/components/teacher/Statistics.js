@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { getSubmissionsByRoom } from '../../services/submissionService';
 import { getTestById } from '../../services/testService';
 import Chart from './charts';
+import { evaluateSubmission, getQuestionCheckConfig } from '../../utils/evaluation';
 
 const Statistics = ({ roomId, roomCode }) => {
   const [submissions, setSubmissions] = useState([]);
@@ -11,6 +12,7 @@ const Statistics = ({ roomId, roomCode }) => {
     totalStudents: 0,
     averageScore: 0,
     questionStats: [],
+    ranking: []
   });
 
   useEffect(() => {
@@ -18,10 +20,10 @@ const Statistics = ({ roomId, roomCode }) => {
       if (!roomId) return;
       
       try {
-        const submissionsData = getSubmissionsByRoom(roomId);
+        const submissionsData = await getSubmissionsByRoom(roomId);
         
         if (submissionsData.length > 0) {
-          const testData = getTestById(submissionsData[0].testId);
+          const testData = await getTestById(submissionsData[0].testId);
           setTest(testData);
           setSubmissions(submissionsData);
           
@@ -48,25 +50,45 @@ const Statistics = ({ roomId, roomCode }) => {
   const calculateStats = (testData, submissionsData) => {
     if (!testData || !submissionsData.length) return;
     
-    // Kopējais skolēnu skaits
     const totalStudents = submissionsData.length;
-    
-    // Statistika par jautājumiem
+
+    const rankedSubmissions = submissionsData
+      .map((submission) => {
+        const evaluation = evaluateSubmission(testData, submission.answers);
+        return {
+          ...submission,
+          evaluation
+        };
+      })
+      .sort((a, b) => {
+        if (b.evaluation.percentage !== a.evaluation.percentage) {
+          return b.evaluation.percentage - a.evaluation.percentage;
+        }
+        return new Date(a.timestamp) - new Date(b.timestamp);
+      })
+      .map((submission, index) => ({
+        ...submission,
+        rank: index + 1
+      }));
+
     const questionStats = testData.questions.map(question => {
       const answersForQuestion = submissionsData.map(sub => sub.answers[question.id]);
-      
-      // Atbilžu skaits
+
       const answerCounts = {};
       answersForQuestion.forEach(answer => {
         if (!answer) return;
         answerCounts[answer] = (answerCounts[answer] || 0) + 1;
       });
-      
-      // Pareizo atbilžu procents (ja norādīta pareizā atbilde)
+
+      const checkConfig = getQuestionCheckConfig(question);
       let correctPercentage = 0;
-      if (question.correctAnswer) {
-        const correctCount = answerCounts[question.correctAnswer] || 0;
-        correctPercentage = (correctCount / totalStudents) * 100;
+      if (checkConfig.hasAutoCheck) {
+        const correctCount = rankedSubmissions.filter((submission) => {
+          return submission.evaluation.questionResults.find(
+            (result) => result.questionId === question.id
+          )?.isCorrect;
+        }).length;
+        correctPercentage = totalStudents > 0 ? (correctCount / totalStudents) * 100 : 0;
       }
       
       return {
@@ -77,31 +99,16 @@ const Statistics = ({ roomId, roomCode }) => {
         mostCommonAnswer: Object.entries(answerCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Nav atbilžu'
       };
     });
-    
-    // Vidējais rezultāts (ja ir pareizās atbildes)
-    let totalScore = 0;
-    let possibleScore = 0;
-    
-    submissionsData.forEach(submission => {
-      let studentScore = 0;
-      
-      testData.questions.forEach(question => {
-        if (question.correctAnswer && submission.answers[question.id] === question.correctAnswer) {
-          studentScore++;
-        }
-      });
-      
-      totalScore += studentScore;
-    });
-    
-    possibleScore = testData.questions.filter(q => q.correctAnswer).length;
-    const averageScore = possibleScore ? 
-      (totalScore / (totalStudents * possibleScore)) * 100 : 0;
+
+    const averageScore = rankedSubmissions.length
+      ? rankedSubmissions.reduce((sum, item) => sum + item.evaluation.percentage, 0) / rankedSubmissions.length
+      : 0;
     
     setStats({
       totalStudents,
       averageScore,
-      questionStats
+      questionStats,
+      ranking: rankedSubmissions
     });
     
     setLoading(false);
@@ -140,18 +147,17 @@ const Statistics = ({ roomId, roomCode }) => {
   return (
     <div className="statistics">
       <h2>Statistika par testu</h2>
+      <p><strong>Istabas kods:</strong> {roomCode}</p>
       <div className="stats-summary">
         <div className="stat-card">
           <h3>Kopējais skolēnu skaits</h3>
           <div className="stat-value">{stats.totalStudents}</div>
         </div>
         
-        {stats.averageScore > 0 && (
-          <div className="stat-card">
-            <h3>Vidējais rezultāts</h3>
-            <div className="stat-value">{stats.averageScore.toFixed(1)}%</div>
-          </div>
-        )}
+        <div className="stat-card">
+          <h3>Vidējais rezultāts</h3>
+          <div className="stat-value">{stats.averageScore.toFixed(1)}%</div>
+        </div>
       </div>
       
       {chartData && (
@@ -175,7 +181,7 @@ const Statistics = ({ roomId, roomCode }) => {
           <div key={qStat.questionId} className="question-stat-card">
             <h4>Jautājums {index + 1}: {qStat.questionText}</h4>
             
-            {test.questions[index].correctAnswer && (
+            {getQuestionCheckConfig(test.questions[index]).hasAutoCheck && (
               <div className="correct-percentage">
                 <strong>Pareizo atbilžu procents:</strong> {qStat.correctPercentage.toFixed(1)}%
                 <div className="progress-bar">
@@ -220,6 +226,30 @@ const Statistics = ({ roomId, roomCode }) => {
           </div>
         ))}
       </div>
+
+      <h3>Reitings</h3>
+      <table className="results-table">
+        <thead>
+          <tr>
+            <th>Rangs</th>
+            <th>Skolēns</th>
+            <th>Rezultāts</th>
+            <th>Iesniegts</th>
+          </tr>
+        </thead>
+        <tbody>
+          {stats.ranking.map((row) => (
+            <tr key={row.id}>
+              <td>#{row.rank}</td>
+              <td>{row.studentName}</td>
+              <td>
+                {row.evaluation.score}/{row.evaluation.maxScore} ({row.evaluation.percentage.toFixed(1)}%)
+              </td>
+              <td>{new Date(row.timestamp).toLocaleString()}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 };

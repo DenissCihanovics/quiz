@@ -6,7 +6,7 @@ const JoinRoom = ({ onJoinRoom }) => {
   const [studentName, setStudentName] = useState('');
   const [error, setError] = useState('');
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     
@@ -17,7 +17,7 @@ const JoinRoom = ({ onJoinRoom }) => {
     }
     
     try {
-      const room = getRoomByCode(roomCode);
+      const room = await getRoomByCode(roomCode);
       
       if (!room) {
         setError('Istaba nav atrasta vai nav aktīva. Lūdzu, pārbaudiet kodu un mēģiniet vēlreiz.');
